@@ -93,7 +93,15 @@ const getStyles = (theme: GrafanaTheme2) => {
   };
 };
 
-export const SingleTrackTimelinePanel: React.FC<Props> = ({ options, data, width, height, fieldConfig, id }) => {
+export const SingleTrackTimelinePanel: React.FC<Props> = ({
+  options,
+  data,
+  width,
+  height,
+  fieldConfig,
+  id,
+  timeRange,
+}) => {
   const theme = useTheme2();
   const styles = useStyles2(getStyles);
   const config = useMemo(() => ({ ...defaultOptions, ...options }), [options]);
@@ -101,6 +109,9 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({ options, data, width
 
   const records = useMemo(() => getIntervalRecords(data.series, config), [data.series, config]);
   const colorMappings = useMemo(() => parseColorMappings(config.colorMappings), [config.colorMappings]);
+  const rangeStart = timeRange.from.valueOf();
+  const rangeEnd = timeRange.to.valueOf();
+  const visibleRecords = useMemo(() => getVisibleRecords(records, rangeStart, rangeEnd), [records, rangeStart, rangeEnd]);
 
   if (data.series.length === 0) {
     return <PanelDataErrorView fieldConfig={fieldConfig} panelId={id} data={data} needsTimeField />;
@@ -122,17 +133,33 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({ options, data, width
     );
   }
 
+  if (visibleRecords.length === 0) {
+    return (
+      <div
+        className={cx(
+          styles.wrapper,
+          css`
+            width: ${width}px;
+            height: ${height}px;
+          `
+        )}
+      >
+        <div className={styles.empty}>No segments in selected time range</div>
+      </div>
+    );
+  }
+
   const paddingX = 10;
   const axisHeight = 18;
   const laneHeight = clamp(config.laneHeight, 8, Math.max(8, height - axisHeight - 12));
   const laneY = Math.max(6, Math.floor((height - axisHeight - laneHeight) / 2));
   const axisY = Math.min(height - 2, laneY + laneHeight + 14);
-  const minTime = Math.min(...records.map((record) => record.start));
-  const maxTime = Math.max(...records.map((record) => record.end));
+  const minTime = rangeStart;
+  const maxTime = rangeEnd;
   const timeSpan = Math.max(1, maxTime - minTime);
   const drawableWidth = Math.max(1, width - paddingX * 2);
   const xForTime = (time: number) => paddingX + ((time - minTime) / timeSpan) * drawableWidth;
-  const tooltipFields = getTooltipFields(config, records);
+  const tooltipFields = getTooltipFields(config, visibleRecords);
 
   return (
     <div
@@ -161,7 +188,7 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({ options, data, width
           {formatTime(maxTime)}
         </text>
 
-        {records.map((record, index) => {
+        {visibleRecords.map((record, index) => {
           const x = xForTime(record.start);
           const nextX = xForTime(record.end);
           const segmentWidth = Math.max(1, nextX - x);
@@ -248,6 +275,16 @@ function getIntervalRecords(frames: DataFrame[], options: SimpleOptions): Interv
   }
 
   return records.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+function getVisibleRecords(records: IntervalRecord[], rangeStart: number, rangeEnd: number): IntervalRecord[] {
+  return records
+    .filter((record) => record.end > rangeStart && record.start < rangeEnd)
+    .map((record) => ({
+      ...record,
+      start: Math.max(record.start, rangeStart),
+      end: Math.min(record.end, rangeEnd),
+    }));
 }
 
 function findField(frame: DataFrame, fieldName?: string): Field | undefined {
