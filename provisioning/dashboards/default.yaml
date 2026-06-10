@@ -1,0 +1,7 @@
+apiVersion: 1
+
+providers:
+  - name: 'Single Track Timeline'
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards

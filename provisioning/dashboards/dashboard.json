@@ -1,0 +1,118 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "barRadius": 3,
+        "colorByField": "status",
+        "colorMappings": "running=green\nwarning=orange\nstopped=red",
+        "endTimeField": "end",
+        "labelField": "status",
+        "laneHeight": 28,
+        "showLabels": true,
+        "startTimeField": "start",
+        "tooltipFields": ["status", "service", "message", "start", "end"],
+        "tooltipWrap": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"start\",\n        \"type\": \"time\"\n      },\n      {\n        \"text\": \"end\",\n        \"type\": \"time\"\n      },\n      {\n        \"text\": \"status\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"service\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"message\",\n        \"type\": \"string\"\n      }\n    ],\n    \"rows\": [\n      [1609459200000, 1609462800000, \"running\", \"api\", \"All systems nominal\"],\n      [1609462800000, 1609466400000, \"warning\", \"api\", \"Elevated latency\"],\n      [1609466400000, 1609470000000, \"stopped\", \"api\", \"Deployment restart\"],\n      [1609470000000, 1609477200000, \"running\", \"api\", \"Recovered\"]\n    ]\n  }\n]"
+        }
+      ],
+      "title": "Single Track Timeline",
+      "type": "singletracktimeline-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "barRadius": 3,
+        "colorByField": "status",
+        "colorMappings": "",
+        "endTimeField": "end",
+        "labelField": "status",
+        "laneHeight": 28,
+        "showLabels": true,
+        "startTimeField": "start",
+        "tooltipFields": [],
+        "tooltipWrap": true
+      },
+      "targets": [
+        {
+          "alias": "",
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "no_data_points"
+        }
+      ],
+      "title": "Single Track Timeline - No data",
+      "type": "singletracktimeline-panel"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Provisioned Single Track Timeline dashboard",
+  "uid": "a538aeff-5a8a-42a5-901c-938d896fdd6f",
+  "version": 1,
+  "weekStart": ""
+}
