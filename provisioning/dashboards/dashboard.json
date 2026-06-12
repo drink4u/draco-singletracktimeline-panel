@@ -58,7 +58,7 @@
         }
       ],
       "title": "Single Track Timeline",
-      "type": "singletracktimeline-panel"
+      "type": "draco-singletracktimeline-panel"
     },
     {
       "datasource": {

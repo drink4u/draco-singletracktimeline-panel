@@ -1,0 +1,28 @@
+{
+    "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+    "type": "panel",
+    "name": "Single Track Timeline",
+    "id": "draco-singletracktimeline-panel",
+    "info": {
+        "keywords": [
+            "panel"
+        ],
+        "description": "",
+        "author": {
+            "name": "Draco"
+        },
+        "logos": {
+            "small": "img/logo.svg",
+            "large": "img/logo.svg"
+        },
+        "links": [],
+        "screenshots": [],
+        "version": "0.0.1",
+        "updated": "2026-06-12"
+    },
+    "dependencies": {
+        "grafanaDependency": ">=12.3.0",
+        "plugins": []
+    },
+    "buildMode": "production"
+}

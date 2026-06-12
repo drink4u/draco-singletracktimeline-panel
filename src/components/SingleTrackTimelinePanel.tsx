@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { DataFrame, Field, GrafanaTheme2, PanelProps } from '@grafana/data';
 import { css, cx } from '@emotion/css';
 import { useStyles2, useTheme2 } from '@grafana/ui';
@@ -65,8 +66,8 @@ const getStyles = (theme: GrafanaTheme2) => {
       max-width: 360px;
       padding: ${theme.spacing(1)};
       pointer-events: none;
-      position: absolute;
-      z-index: 1;
+      position: fixed;
+      z-index: 99999;
     `,
     tooltipRow: css`
       display: grid;
@@ -205,8 +206,21 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
                 rx={config.barRadius}
                 ry={config.barRadius}
                 fill={color}
-                onMouseEnter={(event) => setHover({ record, x: event.nativeEvent.offsetX, y: event.nativeEvent.offsetY })}
-                onMouseMove={(event) => setHover({ record, x: event.nativeEvent.offsetX, y: event.nativeEvent.offsetY })}
+
+                onMouseEnter={(event) =>
+  setHover({
+    record,
+    x: event.clientX,
+    y: event.clientY,
+  })
+}
+              onMouseMove={(event) =>
+  setHover({
+    record,
+    x: event.clientX,
+    y: event.clientY,
+  })
+}
               />
               {config.showLabels && record.label && segmentWidth > 34 && (
                 <text className={styles.segmentLabel} x={x + 6} y={laneY + laneHeight / 2 + 4}>
@@ -218,25 +232,34 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
         })}
       </svg>
 
-      {hover && (
-        <div
-          className={styles.tooltip}
-          style={{
-            left: Math.min(width - 20, hover.x + 12),
-            top: Math.max(4, hover.y - 8),
-            transform: hover.x > width - 220 ? 'translateX(-100%)' : undefined,
-          }}
-        >
-          {tooltipFields.map((fieldName) => (
-            <div className={styles.tooltipRow} key={fieldName}>
-              <span className={styles.tooltipName}>{fieldName}</span>
-              <span className={cx(styles.tooltipValue, !config.tooltipWrap && styles.tooltipValueNoWrap)}>
-                {formatValue(hover.record.raw[fieldName])}
-              </span>
-            </div>
-          ))}
+    {hover &&
+  createPortal(
+    <div
+      className={styles.tooltip}
+      style={{
+        left: hover.x + 12,
+        top: hover.y + 12,
+      }}
+    >
+      {tooltipFields.map((fieldName) => (
+        <div className={styles.tooltipRow} key={fieldName}>
+          <span className={styles.tooltipName}>
+            {fieldName}
+          </span>
+
+          <span
+            className={cx(
+              styles.tooltipValue,
+              !config.tooltipWrap && styles.tooltipValueNoWrap
+            )}
+          >
+            {formatValue(hover.record.raw[fieldName])}
+          </span>
         </div>
-      )}
+      ))}
+    </div>,
+    document.body
+  )}
     </div>
   );
 };
