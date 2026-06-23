@@ -12,7 +12,7 @@ import {
 } from '@grafana/data';
 import { PanelDataErrorView } from '@grafana/runtime';
 import { TimeZone } from '@grafana/schema';
-import { useStyles2, useTheme2 } from '@grafana/ui';
+import { measureText, useStyles2, useTheme2 } from '@grafana/ui';
 
 import { IntervalRecord, SimpleOptions } from 'types';
 
@@ -27,49 +27,78 @@ interface SelectionState {
   startX: number;
   currentX: number;
 }
+interface AxisTick {
+  value: number;
+  label: string;
+}
+
+interface TimeAxis {
+  ticks: AxisTick[];
+}
 
 const fallbackPalette = ['green', 'blue', 'orange', 'purple', 'yellow', 'red'];
 const minSelectionWidth = 5;
-const minAxisLabelGap = 90;
-const timeSteps = [
-  1,
-  2,
-  5,
-  10,
-  20,
-  50,
-  100,
-  200,
-  500,
-  1000,
-  2000,
-  5000,
-  10000,
-  15000,
-  30000,
-  60000,
-  120000,
-  300000,
-  600000,
-  900000,
-  1800000,
-  3600000,
-  7200000,
-  10800000,
-  21600000,
-  43200000,
-  86400000,
-  172800000,
-  604800000,
-  2592000000,
-  7776000000,
-  31536000000,
-  63072000000,
-  157680000000,
-  315360000000,
-  630720000000,
-  1576800000000,
-  3153600000000,
+const uPlotAxisFontSize = 12;
+const uPlotAxisGap = 5;
+const uPlotTickSize = 4;
+const xTickSpacingNormal = 40;
+const xTickValueGap = 18;
+const second = 1000;
+const minute = 60 * second;
+const hour = 60 * minute;
+const day = 24 * hour;
+const month = 30 * day;
+const year = 365 * day;
+const timeUnitSize = {
+  second,
+  minute,
+  hour,
+  day,
+  month: 28 * day,
+  year,
+};
+const timeIncrements = [
+  ...generateUPlotIncrements(10, 0, 3, [1, 2, 2.5, 5]).filter((increment) => increment % 1 === 0),
+  second,
+  5 * second,
+  10 * second,
+  15 * second,
+  30 * second,
+  minute,
+  5 * minute,
+  10 * minute,
+  15 * minute,
+  30 * minute,
+  hour,
+  2 * hour,
+  3 * hour,
+  4 * hour,
+  6 * hour,
+  8 * hour,
+  12 * hour,
+  day,
+  2 * day,
+  3 * day,
+  4 * day,
+  5 * day,
+  6 * day,
+  7 * day,
+  8 * day,
+  9 * day,
+  10 * day,
+  15 * day,
+  month,
+  2 * month,
+  3 * month,
+  4 * month,
+  6 * month,
+  year,
+  2 * year,
+  5 * year,
+  10 * year,
+  25 * year,
+  50 * year,
+  100 * year,
 ];
 
 const defaultOptions: SimpleOptions = {
@@ -103,7 +132,7 @@ const getStyles = (theme: GrafanaTheme2) => {
     `,
     axisLabel: css`
       fill: ${theme.colors.text.secondary};
-      font-size: 11px;
+      font-size: ${uPlotAxisFontSize}px;
     `,
     segmentLabel: css`
       fill: ${theme.colors.text.maxContrast};
@@ -216,17 +245,20 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
   }
 
   const paddingX = 10;
-  const axisHeight = 18;
+  const axisHeight = uPlotTickSize + uPlotAxisGap + uPlotAxisFontSize;
   const laneHeight = clamp(config.laneHeight, 8, Math.max(8, height - axisHeight - 12));
   const laneY = Math.max(6, Math.floor((height - axisHeight - laneHeight) / 2));
-  const axisY = Math.min(height - 2, laneY + laneHeight + 14);
+  const axisY = Math.max(0, height - axisHeight);
+  const tickY = axisY + uPlotTickSize;
+  const labelY = tickY + uPlotAxisGap + uPlotAxisFontSize - 1;
   const minTime = rangeStart;
   const maxTime = rangeEnd;
   const timeSpan = Math.max(1, maxTime - minTime);
   const drawableWidth = Math.max(1, width - paddingX * 2);
   const xForTime = (time: number) => paddingX + ((time - minTime) / timeSpan) * drawableWidth;
   const timeForX = (x: number) => minTime + ((x - paddingX) / drawableWidth) * timeSpan;
-  const ticks = getTimeAxisTicks(minTime, maxTime, drawableWidth);
+  const axis = getTimeAxisTicks(minTime, maxTime, drawableWidth, timeZone);
+  const gridColor = theme.isDark ? 'rgba(240, 250, 255, 0.09)' : 'rgba(0, 10, 23, 0.09)';
   const tooltipFields = getTooltipFields(config, visibleRecords);
   const getSvgX = (event: React.PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -327,30 +359,28 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
           x2={width - paddingX}
           y1={axisY}
           y2={axisY}
-          stroke={theme.colors.border.medium}
+          stroke={gridColor}
           strokeWidth={1}
         />
-        {ticks.map((tick) => (
-          <g key={tick}>
-            <line
-              x1={xForTime(tick)}
-              x2={xForTime(tick)}
-              y1={0}
-              y2={axisY}
-              stroke={theme.colors.border.weak}
-              strokeWidth={1}
-            />
+        {axis.ticks.map((tick) => {
+          const x = xForTime(tick.value);
 
-            <text
-              className={styles.axisLabel}
-              x={xForTime(tick)}
-              y={height - 3}
-              textAnchor={getTickAnchor(tick, minTime, maxTime)}
-            >
-              {formatAxisTime(tick, timeSpan, timeZone)}
-            </text>
-          </g>
-        ))}
+          return (
+            <g key={tick.value}>
+              <line x1={x} x2={x} y1={0} y2={axisY} stroke={gridColor} strokeWidth={1} />
+              <line x1={x} x2={x} y1={axisY} y2={tickY} stroke={gridColor} strokeWidth={1} />
+
+              <text
+                className={styles.axisLabel}
+                x={x}
+                y={labelY}
+                textAnchor={getTickAnchor(tick.value, minTime, maxTime)}
+              >
+                {tick.label}
+              </text>
+            </g>
+          );
+        })}
         {visibleRecords.map((record, index) => {
           const x = xForTime(record.start);
           const nextX = xForTime(record.end);
@@ -541,35 +571,89 @@ function getRecordColor(
   return theme.visualization.getColorByName(paletteColor);
 }
 
-function getTimeAxisTicks(minTime: number, maxTime: number, drawableWidth: number): number[] {
+function getTimeAxisTicks(minTime: number, maxTime: number, drawableWidth: number, timeZone: TimeZone): TimeAxis {
   const span = Math.max(1, maxTime - minTime);
-  const targetTickCount = clamp(Math.floor(drawableWidth / minAxisLabelGap) + 1, 2, 8);
-  const step = getTimeStep(span / Math.max(1, targetTickCount - 1));
-  const ticks: number[] = [];
-  const firstTick = Math.ceil(minTime / step) * step;
+  const increment = getTimeIncrement(minTime, maxTime, drawableWidth, timeZone);
+  const values = getAlignedTimeTickValues(minTime, maxTime, increment);
+  const ticks = values.map((value) => ({
+    value,
+    label: formatAxisTime(value, span, increment, timeZone),
+  }));
 
-  ticks.push(minTime);
+  return {
+    ticks,
+  };
+}
 
-  for (let tick = firstTick; tick < maxTime; tick += step) {
-    if (tick > minTime) {
-      ticks.push(tick);
-    }
+function getTimeIncrement(minTime: number, maxTime: number, drawableWidth: number, timeZone: TimeZone): number {
+  const span = Math.max(1, maxTime - minTime);
+  const maxTicks = drawableWidth / xTickSpacingNormal;
+  const roughIncrement = span / Math.max(1, maxTicks);
+  const sampleLabel = formatAxisTime(Math.max(Math.abs(minTime), Math.abs(maxTime)), span, roughIncrement, timeZone);
+  const minSpace = measureText(sampleLabel, uPlotAxisFontSize).width + xTickValueGap;
+  const minIncrement = (minSpace / Math.max(1, drawableWidth)) * span;
+
+  return timeIncrements.find((increment) => increment >= minIncrement) ?? timeIncrements[timeIncrements.length - 1];
+}
+
+function getAlignedTimeTickValues(minTime: number, maxTime: number, increment: number): number[] {
+  if (increment >= month) {
+    return getCalendarAlignedTicks(minTime, maxTime, increment);
   }
 
-  ticks.push(maxTime);
+  const firstTick = Math.ceil(minTime / increment) * increment;
+  const ticks: number[] = [];
 
-  return uniqueSortedTicks(ticks);
+  for (let tick = firstTick; tick <= maxTime; tick += increment) {
+    ticks.push(Math.round(tick));
+  }
+
+  return ticks;
 }
 
-function getTimeStep(roughStep: number): number {
-  return timeSteps.find((step) => step >= roughStep) ?? timeSteps[timeSteps.length - 1];
-}
+function getCalendarAlignedTicks(minTime: number, maxTime: number, increment: number): number[] {
+  const isYearIncrement = increment >= year;
+  const monthStep = isYearIncrement ? 0 : Math.max(1, Math.round(increment / month));
+  const yearStep = isYearIncrement ? Math.max(1, Math.round(increment / year)) : 0;
+  const firstDate = new Date(minTime);
+  let tickDate = new Date(
+    firstDate.getFullYear(),
+    isYearIncrement ? 0 : firstDate.getMonth(),
+    1,
+    0,
+    0,
+    0,
+    0
+  );
 
-function uniqueSortedTicks(ticks: number[]): number[] {
-  return ticks
-    .map((tick) => Math.round(tick))
-    .filter((tick, index, allTicks) => allTicks.indexOf(tick) === index)
-    .sort((a, b) => a - b);
+  if (tickDate.getTime() < minTime) {
+    tickDate = new Date(
+      tickDate.getFullYear() + yearStep,
+      tickDate.getMonth() + monthStep,
+      1,
+      0,
+      0,
+      0,
+      0
+    );
+  }
+
+  const ticks: number[] = [];
+
+  while (tickDate.getTime() <= maxTime) {
+    ticks.push(tickDate.getTime());
+    tickDate = new Date(
+      tickDate.getFullYear() + yearStep,
+      tickDate.getMonth() + monthStep,
+      1,
+      0,
+      0,
+      0,
+      0
+    );
+  }
+
+  return ticks;
 }
 
 function getTickAnchor(tick: number, minTime: number, maxTime: number): 'start' | 'middle' | 'end' {
@@ -584,35 +668,71 @@ function getTickAnchor(tick: number, minTime: number, maxTime: number): 'start' 
   return 'middle';
 }
 
-function formatAxisTime(value: number, timeSpan: number, timeZone: TimeZone): string {
+function formatAxisTime(value: number, timeSpan: number, foundIncr: number, timeZone: TimeZone): string {
   return dateTimeFormat(value, {
-    format: getAxisTimeFormat(timeSpan),
+    format: getAxisTimeFormat(timeSpan, foundIncr),
     timeZone,
   });
 }
 
-function getAxisTimeFormat(timeSpan: number): string {
-  if (timeSpan <= 10000) {
+function getAxisTimeFormat(timeSpan: number, foundIncr: number): string {
+  const yearRoundedToDay = Math.round(timeUnitSize.year / timeUnitSize.day) * timeUnitSize.day;
+  const incrementRoundedToDay = Math.round(foundIncr / timeUnitSize.day) * timeUnitSize.day;
+
+  if (foundIncr < timeUnitSize.second) {
     return systemDateFormats.interval.millisecond;
   }
 
-  if (timeSpan <= 600000) {
+  if (foundIncr <= timeUnitSize.minute) {
     return systemDateFormats.interval.second;
   }
 
-  if (timeSpan <= 86400000) {
+  if (timeSpan <= timeUnitSize.day) {
     return systemDateFormats.interval.minute;
   }
 
-  if (timeSpan <= 2592000000) {
+  if (foundIncr <= timeUnitSize.day) {
     return systemDateFormats.interval.hour;
   }
 
-  if (timeSpan <= 31536000000) {
+  if (timeSpan < timeUnitSize.year) {
     return systemDateFormats.interval.day;
   }
 
-  return systemDateFormats.interval.month;
+  if (incrementRoundedToDay === yearRoundedToDay) {
+    return systemDateFormats.interval.year;
+  }
+
+  if (foundIncr <= timeUnitSize.year) {
+    return systemDateFormats.interval.month;
+  }
+
+  return systemDateFormats.interval.year;
+}
+
+function generateUPlotIncrements(base: number, minExponent: number, maxExponent: number, multipliers: number[]): number[] {
+  const increments: number[] = [];
+
+  for (let exponent = minExponent; exponent < maxExponent; exponent += 1) {
+    const exponentAbs = Math.abs(exponent);
+    const magnitude = roundDecimal(base ** exponent, exponentAbs);
+
+    for (const multiplier of multipliers) {
+      const increment = base === 10 ? Number(`${multiplier}e${exponent}`) : multiplier * magnitude;
+      increments.push(roundDecimal(increment, exponentAbs));
+    }
+  }
+
+  return increments;
+}
+
+function roundDecimal(value: number, decimals = 0): number {
+  if (Number.isInteger(value)) {
+    return value;
+  }
+
+  const factor = 10 ** decimals;
+  return Math.round(value * factor * (1 + Number.EPSILON)) / factor;
 }
 
 function toTimestamp(value: unknown): number | undefined {
