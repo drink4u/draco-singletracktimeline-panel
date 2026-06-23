@@ -1,9 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DataFrame, Field, GrafanaTheme2, PanelProps } from '@grafana/data';
+
 import { css, cx } from '@emotion/css';
-import { useStyles2, useTheme2 } from '@grafana/ui';
+import {
+  DataFrame,
+  dateTimeFormat,
+  Field,
+  GrafanaTheme2,
+  PanelProps,
+  systemDateFormats,
+} from '@grafana/data';
 import { PanelDataErrorView } from '@grafana/runtime';
+import { TimeZone } from '@grafana/schema';
+import { useStyles2, useTheme2 } from '@grafana/ui';
+
 import { IntervalRecord, SimpleOptions } from 'types';
 
 interface Props extends PanelProps<SimpleOptions> {}
@@ -13,8 +23,54 @@ interface HoverState {
   x: number;
   y: number;
 }
+interface SelectionState {
+  startX: number;
+  currentX: number;
+}
 
 const fallbackPalette = ['green', 'blue', 'orange', 'purple', 'yellow', 'red'];
+const minSelectionWidth = 5;
+const minAxisLabelGap = 90;
+const timeSteps = [
+  1,
+  2,
+  5,
+  10,
+  20,
+  50,
+  100,
+  200,
+  500,
+  1000,
+  2000,
+  5000,
+  10000,
+  15000,
+  30000,
+  60000,
+  120000,
+  300000,
+  600000,
+  900000,
+  1800000,
+  3600000,
+  7200000,
+  10800000,
+  21600000,
+  43200000,
+  86400000,
+  172800000,
+  604800000,
+  2592000000,
+  7776000000,
+  31536000000,
+  63072000000,
+  157680000000,
+  315360000000,
+  630720000000,
+  1576800000000,
+  3153600000000,
+];
 
 const defaultOptions: SimpleOptions = {
   startTimeField: 'start',
@@ -91,6 +147,9 @@ const getStyles = (theme: GrafanaTheme2) => {
       text-overflow: ellipsis;
       white-space: nowrap;
     `,
+    selection: css`
+      pointer-events: none;
+    `,
   };
 };
 
@@ -102,17 +161,23 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
   fieldConfig,
   id,
   timeRange,
+  timeZone,
+  onChangeTimeRange,
 }) => {
   const theme = useTheme2();
   const styles = useStyles2(getStyles);
   const config = useMemo(() => ({ ...defaultOptions, ...options }), [options]);
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [selection, setSelection] = useState<SelectionState | null>(null);
 
   const records = useMemo(() => getIntervalRecords(data.series, config), [data.series, config]);
   const colorMappings = useMemo(() => parseColorMappings(config.colorMappings), [config.colorMappings]);
   const rangeStart = timeRange.from.valueOf();
   const rangeEnd = timeRange.to.valueOf();
-  const visibleRecords = useMemo(() => getVisibleRecords(records, rangeStart, rangeEnd), [records, rangeStart, rangeEnd]);
+  const visibleRecords = useMemo(
+    () => getVisibleRecords(records, rangeStart, rangeEnd),
+    [records, rangeStart, rangeEnd]
+  );
 
   if (data.series.length === 0) {
     return <PanelDataErrorView fieldConfig={fieldConfig} panelId={id} data={data} needsTimeField />;
@@ -160,7 +225,39 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
   const timeSpan = Math.max(1, maxTime - minTime);
   const drawableWidth = Math.max(1, width - paddingX * 2);
   const xForTime = (time: number) => paddingX + ((time - minTime) / timeSpan) * drawableWidth;
+  const timeForX = (x: number) => minTime + ((x - paddingX) / drawableWidth) * timeSpan;
+  const ticks = getTimeAxisTicks(minTime, maxTime, drawableWidth);
   const tooltipFields = getTooltipFields(config, visibleRecords);
+  const getSvgX = (event: React.PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return clamp(event.clientX - rect.left, paddingX, width - paddingX);
+  };
+  const updateHover = (record: IntervalRecord, event: React.MouseEvent<SVGRectElement>) => {
+    if (selection) {
+      return;
+    }
+
+    setHover({
+      record,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+  const finishSelection = (selectionState: SelectionState, currentX: number) => {
+    const startX = clamp(Math.min(selectionState.startX, currentX), paddingX, width - paddingX);
+    const endX = clamp(Math.max(selectionState.startX, currentX), paddingX, width - paddingX);
+
+    if (endX - startX < minSelectionWidth) {
+      setSelection(null);
+      return;
+    }
+
+    onChangeTimeRange({
+      from: Math.floor(timeForX(startX)),
+      to: Math.ceil(timeForX(endX)),
+    });
+    setSelection(null);
+  };
 
   return (
     <div
@@ -173,7 +270,58 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
       )}
       onMouseLeave={() => setHover(null)}
     >
-      <svg width={width} height={height} xmlns="http://www.w3.org/2000/svg" data-testid="single-lane-timeline">
+      <svg
+        width={width}
+        height={height}
+        style={{
+          cursor: selection ? 'col-resize' : 'zoom-in',
+          touchAction: 'none',
+          userSelect: 'none',
+        }}
+        xmlns="http://www.w3.org/2000/svg"
+        data-testid="single-lane-timeline"
+        onPointerDown={(event) => {
+          if (event.button !== 0) {
+            return;
+          }
+
+          const x = getSvgX(event);
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setHover(null);
+          setSelection({
+            startX: x,
+            currentX: x,
+          });
+        }}
+        onPointerMove={(event) => {
+          const currentX = getSvgX(event);
+
+          setSelection((selectionState) =>
+            selectionState
+              ? {
+                  ...selectionState,
+                  currentX,
+                }
+              : selectionState
+          );
+        }}
+        onPointerUp={(event) => {
+          if (!selection) {
+            return;
+          }
+
+          const currentX = getSvgX(event);
+
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+
+          finishSelection(selection, currentX);
+        }}
+        onPointerCancel={() => {
+          setSelection(null);
+        }}
+      >
         <line
           x1={paddingX}
           x2={width - paddingX}
@@ -182,13 +330,27 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
           stroke={theme.colors.border.medium}
           strokeWidth={1}
         />
-        <text className={styles.axisLabel} x={paddingX} y={height - 3}>
-          {formatTime(minTime)}
-        </text>
-        <text className={styles.axisLabel} x={width - paddingX} y={height - 3} textAnchor="end">
-          {formatTime(maxTime)}
-        </text>
+        {ticks.map((tick) => (
+          <g key={tick}>
+            <line
+              x1={xForTime(tick)}
+              x2={xForTime(tick)}
+              y1={0}
+              y2={axisY}
+              stroke={theme.colors.border.weak}
+              strokeWidth={1}
+            />
 
+            <text
+              className={styles.axisLabel}
+              x={xForTime(tick)}
+              y={height - 3}
+              textAnchor={getTickAnchor(tick, minTime, maxTime)}
+            >
+              {formatAxisTime(tick, timeSpan, timeZone)}
+            </text>
+          </g>
+        ))}
         {visibleRecords.map((record, index) => {
           const x = xForTime(record.start);
           const nextX = xForTime(record.end);
@@ -206,21 +368,8 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
                 rx={config.barRadius}
                 ry={config.barRadius}
                 fill={color}
-
-                onMouseEnter={(event) =>
-  setHover({
-    record,
-    x: event.clientX,
-    y: event.clientY,
-  })
-}
-              onMouseMove={(event) =>
-  setHover({
-    record,
-    x: event.clientX,
-    y: event.clientY,
-  })
-}
+                onMouseEnter={(event) => updateHover(record, event)}
+                onMouseMove={(event) => updateHover(record, event)}
               />
               {config.showLabels && record.label && segmentWidth > 34 && (
                 <text className={styles.segmentLabel} x={x + 6} y={laneY + laneHeight / 2 + 4}>
@@ -230,36 +379,43 @@ export const SingleTrackTimelinePanel: React.FC<Props> = ({
             </g>
           );
         })}
+        {selection &&
+          (() => {
+            const left = clamp(Math.min(selection.startX, selection.currentX), paddingX, width - paddingX);
+            const right = clamp(Math.max(selection.startX, selection.currentX), paddingX, width - paddingX);
+
+            return (
+              <g className={styles.selection}>
+                <rect x={left} y={0} width={right - left} height={height} fill={theme.colors.primary.transparent} />
+                <line x1={left} x2={left} y1={0} y2={height} stroke={theme.colors.primary.main} strokeWidth={1} />
+                <line x1={right} x2={right} y1={0} y2={height} stroke={theme.colors.primary.main} strokeWidth={1} />
+                <rect x={left} y={0} width={right - left} height={4} fill={theme.colors.primary.main} opacity={0.35} />
+              </g>
+            );
+          })()}
       </svg>
 
-    {hover &&
-  createPortal(
-    <div
-      className={styles.tooltip}
-      style={{
-        left: hover.x + 12,
-        top: hover.y + 12,
-      }}
-    >
-      {tooltipFields.map((fieldName) => (
-        <div className={styles.tooltipRow} key={fieldName}>
-          <span className={styles.tooltipName}>
-            {fieldName}
-          </span>
-
-          <span
-            className={cx(
-              styles.tooltipValue,
-              !config.tooltipWrap && styles.tooltipValueNoWrap
-            )}
+      {hover &&
+        createPortal(
+          <div
+            className={styles.tooltip}
+            style={{
+              left: hover.x + 12,
+              top: hover.y + 12,
+            }}
           >
-            {formatValue(hover.record.raw[fieldName])}
-          </span>
-        </div>
-      ))}
-    </div>,
-    document.body
-  )}
+            {tooltipFields.map((fieldName) => (
+              <div className={styles.tooltipRow} key={fieldName}>
+                <span className={styles.tooltipName}>{fieldName}</span>
+
+                <span className={cx(styles.tooltipValue, !config.tooltipWrap && styles.tooltipValueNoWrap)}>
+                  {formatValue(hover.record.raw[fieldName], timeZone)}
+                </span>
+              </div>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
@@ -376,11 +532,87 @@ function getRecordColor(
 ): string {
   const mappedColor = mappings[colorValue.toLowerCase()];
   if (mappedColor) {
-    return mappedColor.startsWith('#') || mappedColor.startsWith('rgb') ? mappedColor : theme.visualization.getColorByName(mappedColor);
+    return mappedColor.startsWith('#') || mappedColor.startsWith('rgb')
+      ? mappedColor
+      : theme.visualization.getColorByName(mappedColor);
   }
 
   const paletteColor = fallbackPalette[hashString(colorValue || String(fallbackIndex)) % fallbackPalette.length];
   return theme.visualization.getColorByName(paletteColor);
+}
+
+function getTimeAxisTicks(minTime: number, maxTime: number, drawableWidth: number): number[] {
+  const span = Math.max(1, maxTime - minTime);
+  const targetTickCount = clamp(Math.floor(drawableWidth / minAxisLabelGap) + 1, 2, 8);
+  const step = getTimeStep(span / Math.max(1, targetTickCount - 1));
+  const ticks: number[] = [];
+  const firstTick = Math.ceil(minTime / step) * step;
+
+  ticks.push(minTime);
+
+  for (let tick = firstTick; tick < maxTime; tick += step) {
+    if (tick > minTime) {
+      ticks.push(tick);
+    }
+  }
+
+  ticks.push(maxTime);
+
+  return uniqueSortedTicks(ticks);
+}
+
+function getTimeStep(roughStep: number): number {
+  return timeSteps.find((step) => step >= roughStep) ?? timeSteps[timeSteps.length - 1];
+}
+
+function uniqueSortedTicks(ticks: number[]): number[] {
+  return ticks
+    .map((tick) => Math.round(tick))
+    .filter((tick, index, allTicks) => allTicks.indexOf(tick) === index)
+    .sort((a, b) => a - b);
+}
+
+function getTickAnchor(tick: number, minTime: number, maxTime: number): 'start' | 'middle' | 'end' {
+  if (tick === minTime) {
+    return 'start';
+  }
+
+  if (tick === maxTime) {
+    return 'end';
+  }
+
+  return 'middle';
+}
+
+function formatAxisTime(value: number, timeSpan: number, timeZone: TimeZone): string {
+  return dateTimeFormat(value, {
+    format: getAxisTimeFormat(timeSpan),
+    timeZone,
+  });
+}
+
+function getAxisTimeFormat(timeSpan: number): string {
+  if (timeSpan <= 10000) {
+    return systemDateFormats.interval.millisecond;
+  }
+
+  if (timeSpan <= 600000) {
+    return systemDateFormats.interval.second;
+  }
+
+  if (timeSpan <= 86400000) {
+    return systemDateFormats.interval.minute;
+  }
+
+  if (timeSpan <= 2592000000) {
+    return systemDateFormats.interval.hour;
+  }
+
+  if (timeSpan <= 31536000000) {
+    return systemDateFormats.interval.day;
+  }
+
+  return systemDateFormats.interval.month;
 }
 
 function toTimestamp(value: unknown): number | undefined {
@@ -400,21 +632,23 @@ function toTimestamp(value: unknown): number | undefined {
   return undefined;
 }
 
-function formatTime(value: number): string {
-  return new Date(value).toLocaleString();
-}
-
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, timeZone: TimeZone): string {
   if (value === null || value === undefined) {
     return '-';
   }
 
   if (value instanceof Date) {
-    return formatTime(value.getTime());
+    return dateTimeFormat(value.getTime(), {
+      format: systemDateFormats.fullDate,
+      timeZone,
+    });
   }
 
   if (typeof value === 'number' && Number.isFinite(value) && value > 100000000000) {
-    return formatTime(value);
+    return dateTimeFormat(value, {
+      format: systemDateFormats.fullDate,
+      timeZone,
+    });
   }
 
   return stringifyValue(value);
